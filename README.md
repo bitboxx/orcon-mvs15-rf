@@ -1,8 +1,10 @@
 # Orcon MVS-15 over RF
 
-Two-way control of an Orcon MVS-15 SmartLine ventilation unit from Home Assistant, Node-RED or
-anything else that speaks MQTT, without cutting into the appliance and without giving up the
-existing wall remote.
+Two-way control of an Orcon MVS-15 SmartLine ventilation unit from anything that can publish an
+MQTT message, without cutting into the appliance and without giving up the existing wall remote.
+
+This is a command reference, not an integration. It documents what to transmit, what comes back,
+and where the existing public sources disagree with a real unit.
 
 Everything marked verified here was sent to or received from a real MVS-15RHB in September 2026.
 Where a public source says something different, that is called out rather than quietly corrected,
@@ -105,7 +107,7 @@ The verified rows were each confirmed twice: once by pressing the physical remot
 frame off the air, and once by transmitting it and watching the fan act.
 
 Away is the one to be careful with. It ignores the humidity sensor entirely, so a fan left there
-will not respond to a shower.
+will not respond to a rise in humidity.
 
 ### The trailing byte is per remote
 
@@ -147,8 +149,8 @@ Any duration works, not just the three the remote's clock button offers. `0F` is
 
 The stand byte is free too. `00120502040404` came back as `31D9 003 000002`, so a timed stand 2
 works even though no button on the remote produces one. That makes the whole speed range available
-as a self-expiring boost instead of only high, which is what the drying flow in this repo relies
-on.
+as a self-expiring boost instead of only high, which is what any automation wanting a speed other
+than high should use.
 
 When the timer runs out this unit returns to the last chosen stand, not to auto, so send a `22F1`
 auto before the boost if you want it to land on auto afterwards. To cancel a running timer early,
@@ -249,52 +251,6 @@ Watch everything the fan says:
 ```sh
 mosquitto_sub -h your-broker -t 'RAMSES/GATEWAY/18:333333/rx' -v
 ```
-
-## The drying flow
-
-[`node-red/`](node-red/) has a flow that dries a bathroom out after a shower and then stops, driven
-by two zigbee temperature and humidity sensors. It is the part that took the measurements below,
-and the design notes in [node-red/README.md](node-red/README.md) are more useful than the code.
-
-Four things in it were arrived at the hard way and are worth stealing even if you write your own:
-
-Judge progress on absolute humidity, never on relative. Ventilating pulls in cooler air, and
-falling temperature pushes RH up while moisture is genuinely leaving. A stall guard watching RH
-concludes the fan is achieving nothing exactly while it is working.
-
-Hold high by renewing a self-expiring `22F3` rather than setting a stand and clearing it later.
-If the flow dies, gets redeployed, or the sensor battery goes flat, the boost expires by itself
-within half an hour. A design that sets stand 3 and relies on a later message can strand the fan
-on high indefinitely, and the failure is silent.
-
-Stop on a plateau, not on a timer or a target RH. In a shower cabin, RH targets are unreachable
-in a night, so a fixed target means the fan runs until the backstop achieving nothing.
-
-Make the stop stick. The first version stopped correctly and the trigger restarted it on the next
-reading, twice in one night, because humidity was still above the trigger. A stop that the trigger
-can immediately reverse is not a stop. After stopping, wait for either a genuine dry-out or a
-fresh rise in absolute humidity before starting again.
-
-## What the measurements showed
-
-The useful result is not about the fan.
-
-| Run | Removed | Rate |
-|---|---|---|
-| shower cabin door open, 163 min | 5.1 g/m3 | 1.9 g/m3 per hour |
-| shower cabin door closed, 46 min | 0.2 g/m3 | 0.26 g/m3 per hour |
-
-Same fan, same trigger, same hot cabin straight after a shower, one variable. Leaving the cabin
-door open is worth roughly seven times anything available at the fan.
-
-Polling the fan's own `12A0` mid-run explains why. The cabin read 93% while the fan's sensor in
-the extract path read 56%, which at any plausible plant room temperature is about the same
-moisture content as the outdoor air at the time. The unit was extracting air no wetter than
-outdoors, so the cabin's moisture was not reaching it at all. Running the fan harder or longer
-moves dry air past a closed box.
-
-If you are automating ventilation to solve a damp shower cabin, measure this before buying
-anything. The answer may be a habit rather than hardware.
 
 ## Sources
 
